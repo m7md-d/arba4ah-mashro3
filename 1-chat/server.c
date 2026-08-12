@@ -11,6 +11,9 @@
 #define BUFFER_SIZE 1024
 #define HISTORY_SIZE 16384
 
+/**
+ * Structure to hold client information
+ */
 typedef struct {
     int fd;
     char username[32];
@@ -20,12 +23,18 @@ typedef struct {
 Client clients[MAX_CLIENTS];
 char history[HISTORY_SIZE] = "";
 
+/**
+ * Appends a message to the chat history
+ */
 void append_to_history(const char *msg) {
     if (strlen(history) + strlen(msg) < HISTORY_SIZE - 1) {
         strcat(history, msg);
     }
 }
 
+/**
+ * Broadcasts a message to all connected clients except the one specified by exclude_fd
+ */
 void broadcast(const char *msg, int exclude_fd) {
     int i;
     char formatted_out[BUFFER_SIZE + 128];
@@ -85,6 +94,7 @@ int main() {
         FD_SET(sockfd, &readfds);
         max_fd = sockfd;
 
+        /* Add existing clients to the read set */
         for (i = 0; i < MAX_CLIENTS; i++) {
             sd = clients[i].fd;
             if (sd > 0) FD_SET(sd, &readfds);
@@ -92,8 +102,9 @@ int main() {
         }
 
         activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
-        if (activity < 0) continue;
+        if (activity < 0) continue; /* Error occurred */
 
+        /* Check for new incoming connections */
         if (FD_ISSET(sockfd, &readfds)) {
             new_client = accept(sockfd, NULL, NULL);
             for (i = 0; i < MAX_CLIENTS; i++) {
@@ -107,12 +118,15 @@ int main() {
             }
         }
 
+        /* Check for input from existing clients */
         for (i = 0; i < MAX_CLIENTS; i++) {
             sd = clients[i].fd;
 
+            /* If the client socket is ready for reading */
             if (FD_ISSET(sd, &readfds)) {
                 short readed = read(sd, buffer, BUFFER_SIZE - 2);
 
+                /* If read returns 0 or negative, the client has disconnected */
                 if (readed <= 0) {
                     if (clients[i].registered) {
                         snprintf(leave_msg, sizeof(leave_msg), "*** %s left the room ***\n", clients[i].username);
@@ -129,6 +143,7 @@ int main() {
 
                     if (strlen(buffer) == 0) continue;
 
+                    /* If the client is not registered, treat the input as a username */
                     if (!clients[i].registered) {
                         strncpy(clients[i].username, buffer, 31);
                         clients[i].registered = 1;
@@ -144,8 +159,7 @@ int main() {
                         broadcast(join_msg, sd);
                         write(clients[i].fd, "You> ", 5);
                         append_to_history(join_msg);
-                    } 
-                    else {
+                    } else {
                         snprintf(formatted, sizeof(formatted), "[%s]: %s\n", clients[i].username, buffer);
                         append_to_history(formatted);
                         broadcast(formatted, sd);
