@@ -71,12 +71,12 @@ int init_camera(void) {
     }
 
     memset(&fmt, 0, sizeof(fmt));
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = CAM_WIDTH;
-    fmt.fmt.pix.height = CAM_HEIGHT;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-    fmt.fmt.pix.field = V4L2_FIELD_NONE;
-    if (ioctl(cam_fd, VIDIOC_S_FMT, &fmt) < 0) {
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;         /* Set the format to YUYV                   */
+    fmt.fmt.pix.width = CAM_WIDTH;                  /* Set the width to 320 pixels              */
+    fmt.fmt.pix.height = CAM_HEIGHT;                /* Set the height to 240 pixels             */
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;    /* Set the pixel format to YUYV             */
+    fmt.fmt.pix.field = V4L2_FIELD_NONE;            /* Set the field to none (progressive scan) */
+    if (ioctl(cam_fd, VIDIOC_S_FMT, &fmt) < 0) {    
         perror("VIDIOC_S_FMT");
         return -1;
     }
