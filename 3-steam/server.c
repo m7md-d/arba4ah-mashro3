@@ -141,7 +141,7 @@ static inline void get_rgb(const unsigned char *yuyv, int px, unsigned char *r, 
     int u = yuyv[pair_offset + 1] - 128;
     int v = yuyv[pair_offset + 3] - 128;
 
-    // تحويل YUV -> RGB وحصر القيم بين 0 و 255
+    /* Convert YUV to RGB using integer math */
     int red   = y + (1402 * v) / 1000;
     int green = y - (344 * u + 714 * v) / 1000;
     int blue  = y + (1772 * u) / 1000;
@@ -236,7 +236,7 @@ static void disconnect_client(void) {
 int main(void) {
     int sockfd, new_fd, max_fd, activity, opt;
     char buffer[BUFFER_SIZE];
-    char *query = "\033[2J\033[18t"; /* Size query */
+    char *query = "\033[2J\033[18t"; /* Terminal size query */
     fd_set readfds;
     struct sockaddr serv;
     struct timeval tv;
