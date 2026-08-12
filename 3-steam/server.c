@@ -171,10 +171,13 @@ static void render_frame(const unsigned char *yuyv) {
             int y = (r + g + b) / 3;
             int idx = (y * (RAMP_LEN - 1)) / 255;
 
+            /* Convert RGB to ANSI 256-color code */
+            int ansi_color = 16 + (36 * (r / 51)) + (6 * (g / 51)) + (b / 51);
+
             /* Set the ANSI color code for the character */
-            p += sprintf(p, "\033[38;2;%d;%d;%dm%c", r, g, b, RAMP[idx]);
+            p += sprintf(p, "\033[38;5;%dm%c", ansi_color, RAMP[idx]);
         }
-        p += sprintf(p, "\033[K\r\n");
+        p += sprintf(p, "\033[0m\033[K\r\n");
     }
     *p = '\0';
 }
