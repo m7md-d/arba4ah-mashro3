@@ -20,15 +20,15 @@
 #define NUM_BUFS   4
 
 /* ---- Terminal ---- */
-#define DEFAULT_COLS 80
-#define DEFAULT_ROWS 24
+#define DEFAULT_COLS 160
+#define DEFAULT_ROWS 48
 #define MAX_COLS 300
 #define MAX_ROWS 120
 #define MIN_DIM  10
 #define AWAIT_TIMEOUT_SEC 1
 
 /* Lightness -> Character. */
-static const char RAMP[] = " .:-=+*#%@";
+static const char RAMP[] = " .:!=+*#%@";
 #define RAMP_LEN ((int)(sizeof(RAMP) - 1))
 
 typedef struct {
