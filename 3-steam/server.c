@@ -45,7 +45,7 @@ int cam_fd = -1;
 int cam_width = CAM_WIDTH, cam_height = CAM_HEIGHT;
 VideoBuffer buffers[NUM_BUFS];
 
-static char framebuf[MAX_ROWS * (MAX_COLS + 8) + 64];
+static char framebuf[MAX_ROWS * MAX_COLS * 25 + 1024];
 
 int init_camera(void) {
     struct v4l2_capability cap;
@@ -134,10 +134,21 @@ int init_camera(void) {
     return 0;
 }
 
-/* Returns the luminance (Y) value for a single pixel from the raw YUYV buffer, without any color conversion */
-static inline unsigned char get_y(const unsigned char *yuyv, int px) {
+/* Extracts the RGB values for a single pixel from the raw YUYV buffer */
+static inline void get_rgb(const unsigned char *yuyv, int px, unsigned char *r, unsigned char *g, unsigned char *b) {
     int pair_offset = (px / 2) * 4;
-    return (px % 2 == 0) ? yuyv[pair_offset] : yuyv[pair_offset + 2];
+    int y = (px % 2 == 0) ? yuyv[pair_offset] : yuyv[pair_offset + 2];
+    int u = yuyv[pair_offset + 1] - 128;
+    int v = yuyv[pair_offset + 3] - 128;
+
+    // تحويل YUV -> RGB وحصر القيم بين 0 و 255
+    int red   = y + (1402 * v) / 1000;
+    int green = y - (344 * u + 714 * v) / 1000;
+    int blue  = y + (1772 * u) / 1000;
+
+    *r = (red < 0) ? 0 : ((red > 255) ? 255 : red);
+    *g = (green < 0) ? 0 : ((green > 255) ? 255 : green);
+    *b = (blue < 0) ? 0 : ((blue > 255) ? 255 : blue);
 }
 
 /* builds an ASCII frame of size client_cols x client_rows from the raw camera buffer */
@@ -152,12 +163,18 @@ static void render_frame(const unsigned char *yuyv) {
         for (col = 0; col < client_cols; col++) {
             int src_x = col * cam_width / client_cols;
             int px = src_y * cam_width + src_x;
-            unsigned char y = get_y(yuyv, px);
+            
+            unsigned char r, g, b;
+            get_rgb(yuyv, px, &r, &g, &b);
+            
+            /* Calculate the lightness and map it to a character in the RAMP */
+            int y = (r + g + b) / 3;
             int idx = (y * (RAMP_LEN - 1)) / 255;
-            *p++ = RAMP[idx];
+
+            /* Set the ANSI color code for the character */
+            p += sprintf(p, "\033[38;2;%d;%d;%dm%c", r, g, b, RAMP[idx]);
         }
-        *p++ = '\033'; *p++ = '['; *p++ = 'K';
-        *p++ = '\r'; *p++ = '\n';
+        p += sprintf(p, "\033[K\r\n");
     }
     *p = '\0';
 }
