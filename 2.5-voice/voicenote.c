@@ -3,11 +3,20 @@
 #include <string.h>
 #include <stdint.h>
 #include <alsa/asoundlib.h>
+#include <pthread.h>
 
 #define REQUESTED_RATE 44100
 #define CHANNELS 1
 #define BITS_PER_SAMPLE 16
 #define FRAMES_PER_READ 128
+
+volatile int keep_recording = 1;
+
+void* wait_for_stop(void *arg) {
+    getchar(); // Waiting for the key to be pressed
+    keep_recording = 0;
+    return NULL;
+}
 
 typedef struct __attribute__((packed)) {
     char     riff_header[4];
@@ -85,7 +94,6 @@ int main() {
         return 1;
     }
 
-    // Prepare capture interface
     if ((err = snd_pcm_prepare(pcm_handle)) < 0) {
         fprintf(stderr, "Cannot prepare audio interface: %s\n", snd_strerror(err));
         snd_pcm_close(pcm_handle);
@@ -97,17 +105,23 @@ int main() {
     char *buffer = (char *) malloc(FRAMES_PER_READ * frame_size);
     uint32_t total_bytes_recorded = 0;
 
-    printf("Recording 5 seconds at %u Hz (%d channel)...\n", rate, CHANNELS);
-    int total_loops = (rate * 5) / FRAMES_PER_READ;
+    printf("=== Press ENTER to START recording ===");
+    getchar(); // Blocks until user presses ENTER to start
 
-    for (int i = 0; i < total_loops; i++) {
+    pthread_t stop_thread;
+    pthread_create(&stop_thread, NULL, wait_for_stop, NULL);
+
+    printf("\n[RECORDING...] Press ENTER to STOP recording...\n");
+
+    // Loop continues dynamically until stop_thread detects a keypress
+    while (keep_recording) {
         snd_pcm_sframes_t frames_read = snd_pcm_readi(pcm_handle, buffer, FRAMES_PER_READ);
 
         if (frames_read < 0) {
             frames_read = snd_pcm_recover(pcm_handle, frames_read, 0);
             if (frames_read < 0) {
                 fprintf(stderr, "Fatal ALSA read error: %s\n", snd_strerror(frames_read));
-                break; // Exit loop immediately on unrecoverable error
+                break;
             }
         }
 
@@ -118,7 +132,9 @@ int main() {
         }
     }
 
-    // Immediately stop capture (snd_pcm_drop instead of snd_pcm_drain)
+    pthread_join(stop_thread, NULL);
+
+    // Stop PCM stream immediately
     snd_pcm_drop(pcm_handle);
     snd_pcm_close(pcm_handle);
 
@@ -127,6 +143,6 @@ int main() {
     fclose(wav_file);
     free(buffer);
 
-    printf("Saved %u bytes to output.wav successfully.\n", total_bytes_recorded);
+    printf("Stopped! Saved %u bytes to output.wav successfully.\n", total_bytes_recorded);
     return 0;
 }
