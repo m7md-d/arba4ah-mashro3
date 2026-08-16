@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <termios.h>
 
 #define PORT 8080
@@ -48,9 +49,25 @@ void enable_raw_mode(void) {
     tcsetattr(STDIN_FILENO, TCSANOW, &raw);
 }
 
+void list_voice_notes(void) {
+    printf("\033[H\033[J");
+    printf("--- Voice Notes List (%d) ---\n", voice_note.voice_n);
+    
+    for (int i = 0; i < voice_note.voice_n; i++) {
+        if (i == selected_index) {
+            
+            printf("\033[7m > voice_note_%02d.wav | %02d:%02d \033[0m\n", 
+                   i, voice_notes_array[i].minits, voice_notes_array[i].sec);
+        } else {
+            printf("   voice_note_%02d.wav | %02d:%02d\n", 
+                   i, voice_notes_array[i].minits, voice_notes_array[i].sec);
+        }
+    }
+}
+
 int wav_reader(int wav_file) {
     unsigned char header[44];
-    uint32_t byte_rate, data_size;
+    uint32_t byte_rate, data_size, total_seconds;
 
     lseek(wav_file, 0, SEEK_SET);
     if (read(wav_file, header, sizeof(header)) != sizeof(header)) {
@@ -63,8 +80,14 @@ int wav_reader(int wav_file) {
         return -1;
     }
     /* Calculate voice note time */
-    voice_note.minits = (header[40] + (header[41] << 8)) / 60;
-    voice_note.sec = (header[40] + (header[41] << 8)) % 60;
+    byte_rate = header[28] | (header[29] << 8) | ((uint32_t)header[30] << 16) | ((uint32_t)header[31] << 24);
+    data_size = header[40] | (header[41] << 8) | ((uint32_t)header[42] << 16) | ((uint32_t)header[43] << 24);
+
+    if (byte_rate > 0) {
+        total_seconds = data_size / byte_rate;
+        voice_note.minits = total_seconds / 60;
+        voice_note.sec = total_seconds % 60;
+    }
 
     return 0;
 }
@@ -74,13 +97,21 @@ int write_voice(int new_client, char *buffer) {
     ssize_t readed;
 
     sprintf(buffer, "voice_notes/voice_note_%02d.wav", voice_note.voice_n);
-    voice_file = open(buffer, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    voice_file = open(buffer, O_RDWR | O_CREAT | O_TRUNC, 0644);
+
+    if (voice_file < 0) {
+        perror("Error creating file");
+        close(new_client);
+        return (-1);
+    }
+
     while((readed = read(new_client, buffer, BUFFER_SIZE - 1)) > 0) {
         write(voice_file, buffer, readed);
     }
     if (readed < 0) {
         perror("Error reading from client");
         close(voice_file);
+        close(new_client);
         sprintf(buffer, "voice_notes/voice_note_%02d.wav", voice_note.voice_n);
         remove(buffer);
 
@@ -92,7 +123,26 @@ int write_voice(int new_client, char *buffer) {
     voice_notes_array[voice_note.voice_n].sec = voice_note.sec;
     voice_note.voice_n++;
     close(voice_file);
+    close(new_client);
     list_voice_notes();
+
+    return (0);
+}
+
+int play_voice_note(int note_index) {
+    int voice_file;
+    char filename[256];
+    ssize_t readed;
+
+    sprintf(filename, "voice_notes/voice_note_%02d.wav", note_index);
+    if(!fork()) {
+        #ifdef __linux__
+        execlp("aplay", "aplay", filename, NULL);
+        #elif __APPLE__
+        execlp("afplay", "afplay", filename, NULL);
+        #endif
+        exit(0);
+    }
 
     return (0);
 }
@@ -118,36 +168,6 @@ void user_input_handler(void) {
     list_voice_notes();
 }
 
-void list_voice_notes(void) {
-    printf("\033[H\033[J");
-    printf("--- Voice Notes List (%d) ---\n", voice_note.voice_n);
-    
-    for (int i = 0; i < voice_note.voice_n; i++) {
-        if (i == selected_index) {
-            
-            printf("\033[7m > voice_note_%02d.wav | %02d:%02d \033[0m\n", 
-                   i, voice_notes_array[i].minits, voice_notes_array[i].sec);
-        } else {
-            printf("   voice_note_%02d.wav | %02d:%02d\n", 
-                   i, voice_notes_array[i].minits, voice_notes_array[i].sec);
-        }
-    }
-}
-
-int play_voice_note(int note_index) {
-    int voice_file;
-    char filename[256];
-    ssize_t readed;
-
-    sprintf(filename, "voice_notes/voice_note_%02d.wav", note_index);
-    if(!fork()) {
-        execlp("aplay", "aplay", filename, NULL);
-        exit(0);
-    }
-
-    return (0);
-}
-
 int main() {
     int sockfd, new_client, max_fd, activity ,i, opt, sd;
     char buffer[BUFFER_SIZE], cmd_buffer[BUFFER_SIZE];
@@ -167,6 +187,9 @@ int main() {
     serv.sa_data[5] = 0x00;
 
     serv.sa_len = 16;
+
+    enable_raw_mode();
+    mkdir("voice_notes", 0777);
 
     for (i = 0; i < MAX_CLIENTS; i++) {
         clients[i].fd = 0;
@@ -189,6 +212,7 @@ int main() {
     while (1) {
         FD_ZERO(&readfds);
         FD_SET(sockfd, &readfds);
+        FD_SET(STDIN_FILENO, &readfds);
         max_fd = sockfd;
 
         /* Add existing clients to the read set */
@@ -221,7 +245,7 @@ int main() {
             sd = clients[i].fd;
 
             /* If the client socket is ready for reading */
-            if (FD_ISSET(sd, &readfds)) {
+            if (sd > 0 && FD_ISSET(sd, &readfds)) {
                 /* Process the received message */
                 write_voice(sd, buffer);
             }
