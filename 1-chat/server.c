@@ -86,7 +86,7 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
-    listen(sockfd, 5);
+    listen(sockfd, 5 /* backlog */);
     printf("Server listening Port %d...\n", PORT);
 
     while (1) {
