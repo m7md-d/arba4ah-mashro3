@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 
 #define PORT 8080
 
@@ -64,6 +65,74 @@ void send_ui(int client_fd) {
 }
 
 /**
+ * Reads the "<name> <size>\n" header the client sends before file data,
+ * then stores the following <size> bytes under files/<name>.
+ */
+void receive_upload(int client_fd) {
+    char header[300], path[300], buffer[BUFFER_SIZE], name[256];
+    long size, remaining;
+    int len = 0;
+    ssize_t readed;
+    FILE *fp;
+
+    while (len < (int)sizeof(header) - 1 && read(client_fd, &header[len], 1) == 1) {
+        if (header[len] == '\n') break;
+        len++;
+    }
+    header[len] = '\0';
+
+    if (sscanf(header, "%255s %ld", name, &size) != 2) return;
+
+    snprintf(path, sizeof(path), "files/%s", name);
+    fp = fopen(path, "wb");
+    if (!fp) {
+        perror("Error creating file");
+        return;
+    }
+
+    remaining = size;
+    while (remaining > 0 &&
+           (readed = read(client_fd, buffer, remaining < BUFFER_SIZE ? remaining : BUFFER_SIZE)) > 0) {
+        fwrite(buffer, 1, readed, fp);
+        remaining -= readed;
+    }
+
+    fclose(fp);
+}
+
+/**
+ * Sends "\x01<name> <size>\n" followed by the raw file bytes.
+ * The \x01 marker tells the client this is file data, not screen text.
+ */
+void send_download(int client_fd, const char *name) {
+    char path[300], header[300], buffer[BUFFER_SIZE];
+    long size;
+    int len;
+    size_t readed;
+    FILE *fp;
+
+    snprintf(path, sizeof(path), "files/%s", name);
+    fp = fopen(path, "rb");
+    if (!fp) {
+        perror("Error opening file");
+        return;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    len = snprintf(header, sizeof(header), "\x01%s %ld\n", name, size);
+    write(client_fd, header, len);
+
+    while ((readed = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
+        write(client_fd, buffer, readed);
+    }
+
+    fclose(fp);
+}
+
+/**
  * Handles input from the client.
  */
 void handle_input(int client_fd, char *buffer, ssize_t read_len) {
@@ -87,15 +156,16 @@ void handle_input(int client_fd, char *buffer, ssize_t read_len) {
     else if (buffer[0] == 'u' || buffer[0] == 'U') {
         char msg[] = "\033[H\033[J --- Upload Mode ---\nWaiting for file data...\n";
         write(client_fd, msg, strlen(msg));
-        /* Upload logic will be added later */
-        return;
-    } 
+        receive_upload(client_fd);
+        refresh_file_list();
+    }
     else if (buffer[0] == 'd' || buffer[0] == 'D') {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "\033[H\033[J --- Download Mode ---\nDownloading: %s\n", files_array[selected_index]);
-        write(client_fd, msg, strlen(msg));
-        /* Download logic will be added later */
-        return;
+        if (file_count > 0) {
+            char msg[300];
+            snprintf(msg, sizeof(msg), "\033[H\033[J --- Download Mode ---\nSending: %s\n", files_array[selected_index]);
+            write(client_fd, msg, strlen(msg));
+            send_download(client_fd, files_array[selected_index]);
+        }
     }
     else if (buffer[0] == 'q' || buffer[0] == 'Q') {
         close(client_fd);
@@ -134,15 +204,17 @@ int main(int argc, char **argv) {
     serv.sa_len = 16; /* For macOS, the length of the sockaddr structure is 16 bytes */
     #endif
 
+    mkdir("files", 0777);
+
     sockfd = socket(serv.sa_family, SOCK_STREAM, 0);
 
     opt = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     #ifdef __APPLE__
-    if (connect(sockfd, &serv, serv.sa_len) < 0) {
+    if (bind(sockfd, &serv, serv.sa_len) < 0) {
     #else
-    if (connect(sockfd, &serv, sizeof(serv)) < 0) {
+    if (bind(sockfd, &serv, sizeof(serv)) < 0) {
     #endif
         perror("bind failed");
         exit(EXIT_FAILURE);
