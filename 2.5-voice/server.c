@@ -186,7 +186,9 @@ int main() {
     serv.sa_data[4] = 0x00;
     serv.sa_data[5] = 0x00;
 
-    serv.sa_len = 16;
+    #ifdef __APPLE__
+    serv.sa_len = 16; /* For macOS, the length of the sockaddr structure is 16 bytes */
+    #endif
 
     enable_raw_mode();
     mkdir("voice_notes", 0777);
@@ -201,7 +203,11 @@ int main() {
     opt = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
+    #ifdef __APPLE__
     if (bind(sockfd, &serv, serv.sa_len) < 0) {
+    #else
+    if (bind(sockfd, &serv, sizeof(serv)) < 0) {
+    #endif
         perror("bind failed");
         exit(EXIT_FAILURE);
     }

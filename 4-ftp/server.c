@@ -146,7 +146,7 @@ void handle_input(int client_fd, char *buffer, ssize_t read_len) {
         }
     } 
     else if (buffer[0] == '\n' || buffer[0] == '\r') {
-        char msg[256];
+        char msg[512];//changed value 256->512
         snprintf(msg, sizeof(msg), "\033[H\033[J You selected: %s\n", files_array[selected_index]);
         write(client_fd, msg, strlen(msg));
         return;

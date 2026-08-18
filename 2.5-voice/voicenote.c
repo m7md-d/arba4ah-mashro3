@@ -2,13 +2,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 #include <alsa/asoundlib.h>
 #include <pthread.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 #define REQUESTED_RATE 44100
 #define CHANNELS 1
 #define BITS_PER_SAMPLE 16
 #define FRAMES_PER_READ 128
+
+// Server Configuration
+#define SERVER_IP "10.61.3.40" //server's IP
+#define SERVER_PORT 8080      //server's port
 
 volatile int keep_recording = 1;
 
@@ -53,6 +60,59 @@ void write_wav_header(FILE *file, uint32_t total_data_bytes, uint32_t actual_rat
     fseek(file, 0, SEEK_SET);
     fwrite(&header, sizeof(WavHeader), 1, file);
     fflush(file);
+}
+
+int send_file_to_server(const char *filename, const char *ip, int port) {
+    int sockfd;
+    struct sockaddr_in server_addr;
+    char chunk[4096];
+    size_t bytes_read;
+
+    // 1. Create socket
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation failed");
+        return -1;
+    }
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+
+    if (inet_pton(AF_INET, ip, &server_addr.sin_addr) <= 0) {
+        perror("Invalid IP address");
+        close(sockfd);
+        return -1;
+    }
+
+    // 2. Connect to server
+    printf("Connecting to server %s:%d...\n", ip, port);
+    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Connection to server failed");
+        close(sockfd);
+        return -1;
+    }
+
+    // 3. Open completed file and send stream
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        perror("Failed to open file for sending");
+        close(sockfd);
+        return -1;
+    }
+
+    printf("Sending %s to server...\n", filename);
+    while ((bytes_read = fread(chunk, 1, sizeof(chunk), file)) > 0) {
+        if (send(sockfd, chunk, bytes_read, 0) < 0) {
+            perror("Failed to send file data");
+            fclose(file);
+            close(sockfd);
+            return -1;
+        }
+    }
+
+    printf("File sent successfully!\n");
+    fclose(file);
+    close(sockfd);
+    return 0;
 }
 
 int main() {
@@ -144,5 +204,9 @@ int main() {
     free(buffer);
 
     printf("Stopped! Saved %u bytes to output.wav successfully.\n", total_bytes_recorded);
+
+    // Upload to server
+    send_file_to_server("output.wav", SERVER_IP, SERVER_PORT);
+
     return 0;
 }
