@@ -156,8 +156,10 @@ void user_input_handler(void) {
                 if (seq[0] == '[') {
                     if (seq[1] == 'A') { /* Up arrow */
                         if (selected_index > 0) selected_index--;
+                        else selected_index = voice_note.voice_n - 1;
                     } else if (seq[1] == 'B') { /* Down arrow */
                         if (selected_index < voice_note.voice_n - 1) selected_index++;
+                        else selected_index = 0;
                     }
                 }
             }
